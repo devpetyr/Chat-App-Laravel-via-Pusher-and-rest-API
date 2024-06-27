@@ -7,60 +7,168 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
-## About Laravel
+## Chat App using pusher & restapi synced for webapplications and mobileapplications
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+<p>NOTE: pusher only works on live server or you can use ngrok for local.
+•	Create Laravel project and configure db.
+•	Make pusher id and make channel on pusher get credentials from there and save it on .env file
+•	PUSHER_APP_ID="1824635"
+•	PUSHER_APP_KEY="eaaf59b964fbd682eab8"
+•	PUSHER_APP_SECRET="0ce5d033bb4ee0011b98"
+•	PUSHER_HOST=
+•	PUSHER_PORT="443"
+•	PUSHER_SCHEME="https"
+•	PUSHER_APP_CLUSTER="ap2"
+•	BROADCAST_DRIVER=pusher
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+•	Run this command # composer require pusher/pusher-php-server
+•	Make model for messages and users
+•	php artisan make:model Message -m
 
-## Learning Laravel
+Schema::create('messages', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('sender_id');
+            $table->unsignedBigInteger('receiver_id');
+            $table->string('message');
+            $table->text('avatar');
+            $table->text('attachments');
+            $table->timestamps();
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+            $table->foreign('sender_id')->references('id')->on('users')->onDelete('cascade');
+            $table->foreign('receiver_id')->references('id')->on('users')->onDelete('cascade');
+        });
+•	php artisan migrate
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
 
-## Laravel Sponsors
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
 
-### Premium Partners
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
 
-## Contributing
+•	php artisan make:event MessageSent
+class MessageSent implements ShouldBroadcast
+{
+    use Dispatchable, InteractsWithSockets, SerializesModels;
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+    public $message;
 
-## Code of Conduct
+    public function __construct(Message $message)
+    {
+        $this->message = $message;
+        Log::info('MessageSent event dispatched: ' . $message->id); // Add this line
+    }
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+    public function broadcastOn()
+    {
+        return new PrivateChannel('ChatAppForYBL.' . $this->message->receiver_id);
+    }
 
-## Security Vulnerabilities
+    public function broadcastWith()
+    {
+        return ['message' => $this->message];
+    }
+}
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+•	php artisan make:controller ChatController
+class ChatController extends Controller
+{
+    public function sendMessage(Request $request)
+    {
+        $message = Message::create([
+            'sender_id' => $request->sender_id,
+            'receiver_id' => $request->receiver_id,
+            'message' => $request->message,
+            'avatar' => 'https://codeskulptor-demos.commondatastorage.googleapis.com/GalaxyInvaders/back05.jpg',
+            'attachments' => 'https://codeskulptor-demos.commondatastorage.googleapis.com/GalaxyInvaders/back02.jpg'
+        ]);
+        broadcast(new MessageSent($message))->toOthers();
+        return response()->json(['message' => $message]);
+    }
+    public function getMessages(Request $request)
+    {
+        $userId = $request->sender_id;
+        $otherUserId = $request->receiver_id;
 
-## License
+        $messages = Message::where(function ($query) use ($userId, $otherUserId) {
+            $query->where('sender_id', $userId)->where('receiver_id', $otherUserId);
+        })->orWhere(function ($query) use ($userId, $otherUserId) {
+            $query->where('sender_id', $otherUserId)->where('receiver_id', $userId);
+        })->orderBy('created_at', 'asc')->get();
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+        return response()->json(['messages' => $messages]);
+    }
+}
+•	Make changes on broadcasting.php
+'connections' => [
+        'pusher' => [
+            'driver' => 'pusher',
+            'key' => env('PUSHER_APP_KEY'),
+            'secret' => env('PUSHER_APP_SECRET'),
+            'app_id' => env('PUSHER_APP_ID'),
+            'options' => [
+                'cluster' => env('PUSHER_APP_CLUSTER'),
+                'useTLS' => true,
+            ],
+        ],
+        'aliases' => [
+            'Broadcast' => Illuminate\Support\Facades\Broadcast::class,
+        ],
+        'ably' => [
+            'driver' => 'ably',
+            'key' => env('ABLY_KEY'),
+        ],
+        'redis' => [
+            'driver' => 'redis',
+            'connection' => 'default',
+        ],
+        'log' => [
+            'driver' => 'log',
+        ],
+        'null' => [
+            'driver' => 'null',
+        ],
+
+    ],
+•	
+•	Goto routes/ channels and write this code
+Broadcast::channel('ChatAppForYBL.{receiverId}', function ($user,
+$receiverId) {
+    return (int) $user->id === (int) $receiverId || true; // Update the condition as necessary
+});
+
+
+
+
+•	For routes/api
+Route::post('/send-message', [ChatController::class, 'sendMessage']);
+Route::post('/get-messages', [ChatController::class, 'getMessages']);
+Route::get('/test-pusher', function () {
+    $message = Message::create([
+        'sender_id' => 1,
+        'receiver_id' => 2,
+        'message' => 'Testing Pusher',
+    ]);
+    broadcast(new MessageSent($message))->toOthers();
+    return 'Event has been broadcasted!';
+});
+Route::post('/pusher/auth', function(Request $request) {
+    $socketId = $request->input('socket_id');
+    $channelName = $request->input('channel_name'); // Ensure you receive channel_name
+    $userData = json_encode([
+        'id' => "2",
+    ]);
+    // Your Pusher app credentials
+    $key = 'eaaf59b964fbd682eab8';
+    $secret = '0ce5d033bb4ee0011b98';
+    // Create HMAC signature including userData for presence channels
+    $stringToSign = "{$socketId}:{$channelName}:{$userData}";
+    $signature = hash_hmac('sha256', $stringToSign, $secret);
+    // Construct authentication response
+    $auth = "{$key}:{$signature}";
+    return response()->json([
+        'auth' => $auth,
+        'channel_data' => $userData, // Include if it's a presence channel
+    ]);
+});
+</p>
